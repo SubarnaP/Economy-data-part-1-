@@ -47,7 +47,7 @@ export default function MainDashboard() {
           const nextIndex = (currentIndex + 1) % allGregorianYears.length;
           return allGregorianYears[nextIndex];
         });
-      }, 1500);
+      }, 1000); // Reduced interval for smoother animation
     } else {
       clearInterval(intervalId);
     }
@@ -76,9 +76,9 @@ export default function MainDashboard() {
         .filter(division => selectedDivisions.includes(division.name))
         .map(division => ({
           ...division,
-          data: division.data.map(d => ({...d})),
+          data: division.data.map(d => ({...d})), // Ensure we use copies of year data objects
         }));
-    } else {
+    } else { // Bar chart
       if (!selectedYear) return [];
       return gvaData
         .filter(division => selectedDivisions.includes(division.name))
@@ -231,6 +231,7 @@ export default function MainDashboard() {
                   <AlertTitle className="text-accent">No Data for Current Filters</AlertTitle>
                   <AlertDescription>
                     There is no data available for the current combination of filters. For bar charts, this might be due to no data for the selected year ({selectedYear ? selectedYear.replace("/","-") : 'N/A'}).
+                    For Time Series, ensure at least one division is selected.
                   </AlertDescription>
                 </Alert>
               ) : chartDisplayData.length === 0 ? (
@@ -287,3 +288,4 @@ export default function MainDashboard() {
     </div>
   );
 }
+
