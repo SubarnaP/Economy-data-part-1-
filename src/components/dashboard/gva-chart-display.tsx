@@ -16,9 +16,9 @@ import type { ChartType, GvaIndustrialDivision } from '@/types';
 import { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 
 interface GvaChartDisplayProps {
-  data: GvaIndustrialDivision[]; // Data is pre-filtered for selected divisions AND selected year(s)
+  data: GvaIndustrialDivision[]; // Data is pre-filtered for selected divisions. For line chart, includes all years. For bar chart, single year.
   chartType: ChartType;
-  years: string[]; // Will typically be a single year array like ["2022/23"]
+  years: string[]; // For line chart, all available years. For bar chart, single selected year array like ["2022/23"].
 }
 
 const chartColors = [
@@ -85,15 +85,17 @@ const abbreviateName = (name: string): string => {
 
 export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisplayProps) {
   if (!data.length || !years.length) {
-    return <p className="text-muted-foreground">No data to display in chart. Please select a year and divisions.</p>;
+    return <p className="text-muted-foreground">No data to display in chart. Please select divisions and ensure data exists for the selected year (for bar chart) or any year (for line chart).</p>;
   }
 
-  const isSingleYear = years.length === 1;
-  const singleYear = isSingleYear ? years[0] : null;
+  // For bar chart, 'years' will be a single element array. For line chart, it's all available years.
+  const isSingleYearModeForBarChart = chartType === 'bar' && years.length === 1;
+  const singleYearForBarChart = isSingleYearModeForBarChart ? years[0] : null;
 
   let chartData: any[];
   const activeChartConfig: ChartConfig = {};
 
+  // Populate chartConfig based on the divisions present in `data`
   data.forEach((division, index) => {
     const saneKey = sanitizeNameForKey(division.name);
     activeChartConfig[saneKey] = {
@@ -103,9 +105,11 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
   });
 
 
-  if (isSingleYear && chartType === 'bar') {
+  if (isSingleYearModeForBarChart && singleYearForBarChart) {
+    // Bar chart data: X-axis = division, Y-axis = value for that single year
     chartData = data.map(division => {
-      const yearDataEntry = division.data.find(d => d.gregorianYear === singleYear);
+      // `division.data` for bar chart mode is already filtered to the single selected year in MainDashboard
+      const yearDataEntry = division.data.find(d => d.gregorianYear === singleYearForBarChart);
       return {
         name: abbreviateName(division.name), // Abbreviated for X-axis
         originalName: division.name,         // Full name for tooltips
@@ -113,12 +117,13 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
         value: yearDataEntry?.value ?? null,
       };
     });
-  } else { // For line chart or multi-year bar chart
-    chartData = years.map(year => {
-      const entry: { [key: string]: string | number | null } = { name: year.replace("/", "-") };
-      data.forEach(division => {
+  } else { // For line chart (multi-year)
+    // Line chart data: X-axis = year, Y-axis = value, each line is a division
+    chartData = years.map(year => { // `years` is allGregorianYears for line chart
+      const entry: { [key: string]: string | number | null } = { name: year.replace("/", "-") }; // X-axis value is the year
+      data.forEach(division => { // `data` contains all divisions, each with all its year data
         const yearData = division.data.find(d => d.gregorianYear === year);
-        entry[sanitizeNameForKey(division.name)] = yearData?.value ?? null;
+        entry[sanitizeNameForKey(division.name)] = yearData?.value ?? null; // Each division becomes a key in the entry
       });
       return entry;
     });
@@ -133,32 +138,32 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
 
   const CustomTooltip = ({ active, payload, label }: RechartsTooltipProps<ValueType, NameType>) => {
     if (active && payload && payload.length) {
-      let tooltipContentConfig = activeChartConfig; // Default to global active config
+      let tooltipContentConfig = activeChartConfig;
+      let tooltipLabel = label;
 
-      if (isSingleYear && chartType === 'bar' && payload[0]?.payload) {
-        const itemPayload = payload[0].payload; // { name, originalName, saneKey, value, fill }
+      if (isSingleYearModeForBarChart && payload[0]?.payload) {
+        const itemPayload = payload[0].payload;
         const saneKeyForTooltip = itemPayload.saneKey;
         const fullLabelForTooltip = itemPayload.originalName;
-        // item.color is the resolved color of the Cell from the chart payload
         const colorForTooltip = payload[0].color || activeChartConfig[saneKeyForTooltip]?.color;
+        
+        tooltipLabel = fullLabelForTooltip; // Main title of tooltip is the full division name
 
-
-        // Create a specific config for ChartTooltipContent for this item
-        // The key 'value' must match the dataKey of the <Bar> component
         tooltipContentConfig = {
-          'value': {
-            label: fullLabelForTooltip, // Display full name in tooltip item list
+          'value': { // 'value' matches the dataKey of the <Bar>
+            label: fullLabelForTooltip, // This label is for the item in the list within the tooltip
             color: colorForTooltip,
           }
         };
       }
-      // For line charts or multi-year bar charts, payload items will have dataKey set to saneKey
-      // ChartTooltipContent will use activeChartConfig and correctly find config[saneKey]
+      // For line charts, 'label' is the year (X-axis tick value).
+      // `payload` items will have `dataKey` set to `saneKey` of the division.
+      // `ChartTooltipContent` will use `activeChartConfig` and find `config[saneKey]` for each line item.
 
       return (
         <ChartTooltipContent
           className="w-[280px] rounded-md border bg-popover p-2 shadow-lg"
-          label={isSingleYear && chartType === 'bar' ? payload[0]?.payload?.originalName : label} // X-axis tick value or full name for single bar
+          label={tooltipLabel} 
           payload={payload.map(p => ({...p, value: p.value != null ? (p.value as number).toLocaleString() : "N/A" }))}
           config={tooltipContentConfig}
           indicator={chartType === 'line' ? 'line' : 'dot'}
@@ -168,13 +173,13 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
     return null;
   };
   
-  const xAxisDataKey = "name"; // "name" is abbreviated division for single-year-bar, year for others
+  const xAxisDataKey = "name"; // "name" is abbreviated division for single-year-bar, or year for line chart
 
-  const legendPayload = data.map(division => ({
-    value: sanitizeNameForKey(division.name), // This is the key ChartLegendContent will use to lookup in activeChartConfig
-    type: 'square', // Or 'line', 'circle' etc. as appropriate
-    id: sanitizeNameForKey(division.name),
-    color: activeChartConfig[sanitizeNameForKey(division.name)]?.color
+  const legendPayload = Object.keys(activeChartConfig).map(saneKey => ({
+    value: saneKey,
+    type: 'square', 
+    id: saneKey,
+    color: activeChartConfig[saneKey]?.color
   }));
 
   return (
@@ -189,57 +194,58 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
             tickMargin={8}
             angle={-45}
             textAnchor="end"
-            height={80} // Increased height for labels
-            interval={0}
+            height={80}
+            interval={0} // Show all year ticks for line chart if space allows, or adjust as needed
             tickFormatter={(value) => value.toString()}
           />
           <YAxis tickFormatter={yAxisFormatter} />
           <ChartTooltip content={<CustomTooltip />} />
           <ChartLegend content={<ChartLegendContent />} payload={legendPayload} wrapperStyle={{paddingTop: '20px'}} />
-          {data.map(division => {
-            const saneKey = sanitizeNameForKey(division.name);
+          {/* data for LineChart has one object per year, with keys for each division's value in that year */}
+          {/* activeChartConfig keys are sanitized division names */}
+          {Object.keys(activeChartConfig).map(saneKey => {
             return (
               <Line
                 key={saneKey}
-                dataKey={saneKey}
+                dataKey={saneKey} // This saneKey must exist in each object of chartData for line chart
                 type="monotone"
                 stroke={`var(--color-${saneKey})`}
                 strokeWidth={2}
-                dot={isSingleYear || years.length <= 5 } // Show dots if single year or few years
+                dot={years.length <= 5 } // Show dots if few years, consider for line chart with many years
                 activeDot={{ r: 6 }}
               />
             );
           })}
         </LineChart>
-      ) : ( // Bar Chart
+      ) : ( // Bar Chart (assumed to be singleYearModeForBarChart)
         <BarChart accessibilityLayer data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 70 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
-            dataKey={xAxisDataKey} // Abbreviated Division name for single-year-bar, Year for multi-year-bar
+            dataKey={xAxisDataKey} // Abbreviated Division name for single-year-bar
             tickLine={false}
             axisLine={false}
             tickMargin={8}
             angle={-45}
             textAnchor="end"
-            height={80} // Increased height for labels
+            height={80}
             interval={0}
             tickFormatter={(value) => value.toString()}
           />
           <YAxis tickFormatter={yAxisFormatter} />
           <ChartTooltip content={<CustomTooltip />} />
           <ChartLegend content={<ChartLegendContent />} payload={legendPayload} wrapperStyle={{paddingTop: '20px'}} />
-          {isSingleYear && chartType === 'bar' ? (
+          {isSingleYearModeForBarChart ? (
             // Single <Bar> with <Cell> components for each division
+            // chartData for single year bar chart has: { name (abbr), originalName, saneKey, value }
             <Bar dataKey="value" radius={[4, 4, 0, 0]}>
               {chartData.map((entry, index) => (
-                 // entry.saneKey is the sanitized key for the division
                 <Cell key={`cell-${index}`} fill={`var(--color-${entry.saneKey})`} name={entry.originalName} />
               ))}
             </Bar>
           ) : (
-            // Grouped bar chart (X-axis is year, each bar in group is a division (identified by saneKey))
-            data.map(division => {
-              const saneKey = sanitizeNameForKey(division.name);
+            // This case (multi-year bar chart) is not explicitly handled by current UI,
+            // but if data were structured for it, it would be:
+            Object.keys(activeChartConfig).map(saneKey => {
               return (
                 <Bar
                   key={saneKey}
@@ -252,9 +258,9 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
           )}
         </BarChart>
       )}
-      {/* ChartStyle component uses activeChartConfig to generate CSS color variables */}
       <ChartStyle id="gva-chart-style" config={activeChartConfig} />
     </ChartContainer>
   );
 }
 
+    
