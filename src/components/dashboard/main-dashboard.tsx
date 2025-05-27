@@ -47,7 +47,7 @@ export default function MainDashboard() {
           const nextIndex = (currentIndex + 1) % allGregorianYears.length;
           return allGregorianYears[nextIndex];
         });
-      }, 1000); // Reduced interval for smoother animation
+      }, 300); // Further reduced interval for smoother animation
     } else {
       clearInterval(intervalId);
     }
@@ -71,14 +71,15 @@ export default function MainDashboard() {
     if (!selectedDivisions.length) {
       return [];
     }
-    if (chartType === 'line') {
+    if (chartType === 'line') { // 'line' now refers to Interactive Time Series
       return gvaData
         .filter(division => selectedDivisions.includes(division.name))
         .map(division => ({
           ...division,
-          data: division.data.map(d => ({...d})), // Ensure we use copies of year data objects
+          // Ensure we pass all year data for each selected division for time series
+          data: division.data.map(d => ({...d})), 
         }));
-    } else { // Bar chart
+    } else { // Bar chart - still shows data for the single selectedYear
       if (!selectedYear) return [];
       return gvaData
         .filter(division => selectedDivisions.includes(division.name))
@@ -91,6 +92,7 @@ export default function MainDashboard() {
   }, [selectedDivisions, chartType, selectedYear]);
   
   const yearsForChart = useMemo(() => {
+    // For line chart (time series), use all years. For bar chart, use only the selected year.
     return chartType === 'line' ? allGregorianYears : (selectedYear ? [selectedYear] : []);
   }, [chartType, selectedYear]);
 
@@ -142,7 +144,7 @@ export default function MainDashboard() {
     csvContent += headers.join(",") + "\r\n";
 
     singleYearFilteredData.forEach(division => {
-      const yearDataEntry = division.data[0];
+      const yearDataEntry = division.data[0]; // singleYearFilteredData contains only one year's data per division
       const value = yearDataEntry?.value?.toString() || "";
       const row = [division.name, value];
       csvContent += row.join(",") + "\r\n";
