@@ -10,7 +10,7 @@ import {
   ChartLegendContent,
   ChartStyle,
 } from "@/components/ui/chart";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, TooltipProps as RechartsTooltipProps } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis, Cell, TooltipProps as RechartsTooltipProps } from "recharts";
 import type { ChartConfig } from "@/components/ui/chart";
 import type { ChartType, GvaIndustrialDivision } from '@/types';
 import { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
@@ -29,10 +29,58 @@ const chartColors = [
   "hsl(var(--chart-5))",
   "hsl(var(--primary))",
   "hsl(var(--accent))",
-  "hsl(220, 70%, 50%)",
-  "hsl(160, 60%, 45%)",
-  "hsl(30, 80%, 55%)",
+  "hsl(220, 70%, 50%)", // A distinct blue
+  "hsl(160, 60%, 45%)", // A teal/green
+  "hsl(30, 80%, 55%)",  // An orange
+  "hsl(280, 60%, 60%)", // A purple
+  "hsl(0, 70%, 60%)",   // A red
+  "hsl(60, 70%, 45%)",  // A yellow/gold
+  "hsl(200, 75%, 55%)", // Another blue
+  "hsl(330, 70%, 60%)", // A pink/magenta
 ];
+
+// Helper to sanitize names for use as data keys and CSS variable suffixes
+const sanitizeNameForKey = (name: string): string => {
+  return name.replace(/[^a-zA-Z0-9_]/g, '_').replace(/_+/g, '_');
+};
+
+// Helper to abbreviate long division names
+const abbreviateName = (name: string): string => {
+  if (name.length <= 20) return name; // Keep shorter names as is
+  const abbreviations: Record<string, string> = {
+    "Agriculture, forestry and fishing": "Agri, Forest, Fish",
+    "Mining and quarrying": "Mining & Quarrying",
+    "Manufacturing": "Manufacturing",
+    "Electricity and gas": "Electricity & Gas",
+    "Water supply; sewerage and waste management": "Water & Waste Mgmt",
+    "Construction": "Construction",
+    "Wholesale and retail trade; repair of motor vehicles and motorcycles": "Wholesale/Retail Trade",
+    "Transportation and storage": "Transport & Storage",
+    "Accommodation and food service activities": "Accommodation & Food",
+    "Information and communication": "Info & Comms",
+    "Financial and insurance activities": "Finance & Insurance",
+    "Real estate activities": "Real Estate",
+    "Professional, scientific and technical activities": "Professional Services",
+    "Administrative and support service activities": "Admin Services",
+    "Public administration and defence; compulsory social security": "Public Admin & Defence",
+    "Education": "Education",
+    "Human health and social work activities": "Health & Social Work",
+    "Other Services": "Other Services",
+    "Total Agriculture, Forestry and Fishing": "Total Agri.",
+    "Total Non-Agriculture": "Total Non-Agri.",
+    "Gross Domestic Product (GDP) at basic prices": "GDP (Basic Prices)",
+    "Taxes less subsidies on products": "Taxes less Subsidies",
+    "Gross Domestic Product (GDP)": "Total GDP",
+  };
+  if (abbreviations[name]) return abbreviations[name];
+
+  // Generic abbreviation: take first few letters of first few words
+  const words = name.split(' ');
+  if (words.length > 2) {
+    return words.slice(0, 2).map(w => w.substring(0, Math.min(w.length, 5))).join(' ') + (words.length > 2 ? '...' : '');
+  }
+  return name.substring(0, 18) + "...";
+};
 
 
 export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisplayProps) {
@@ -40,48 +88,39 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
     return <p className="text-muted-foreground">No data to display in chart. Please select a year and divisions.</p>;
   }
 
-  // If only one year is selected and chartType is 'bar', transform data for better bar chart display
-  // X-axis: Divisions, Y-axis: Value
-  // `data` prop already contains GvaIndustrialDivision items, each with a `data` array
-  // that should contain at most one GvaYearValue entry (for the selected year).
   const isSingleYear = years.length === 1;
   const singleYear = isSingleYear ? years[0] : null;
 
-  let chartData;
-  let chartConfig: ChartConfig = {};
+  let chartData: any[];
+  const activeChartConfig: ChartConfig = {};
+
+  data.forEach((division, index) => {
+    const saneKey = sanitizeNameForKey(division.name);
+    activeChartConfig[saneKey] = {
+      label: division.name, // Full name for legend/tooltip label
+      color: chartColors[index % chartColors.length],
+    };
+  });
+
 
   if (isSingleYear && chartType === 'bar') {
     chartData = data.map(division => {
       const yearDataEntry = division.data.find(d => d.gregorianYear === singleYear);
       return {
-        name: division.name, // Division name for X-axis
+        name: abbreviateName(division.name), // Abbreviated for X-axis
+        originalName: division.name,         // Full name for tooltips
+        saneKey: sanitizeNameForKey(division.name), // Sanitized key for color/config lookup
         value: yearDataEntry?.value ?? null,
       };
     });
-    // Config for single year bar chart (each bar is a division)
-    data.forEach((division, index) => {
-      chartConfig[division.name] = {
-        label: division.name,
-        color: chartColors[index % chartColors.length],
-      };
-    });
-
-  } else { // For line chart or multi-year bar chart (or single year line chart)
+  } else { // For line chart or multi-year bar chart
     chartData = years.map(year => {
       const entry: { [key: string]: string | number | null } = { name: year.replace("/", "-") };
       data.forEach(division => {
-        // division.data here is already filtered to the selected year(s)
         const yearData = division.data.find(d => d.gregorianYear === year);
-        entry[division.name] = yearData?.value ?? null;
+        entry[sanitizeNameForKey(division.name)] = yearData?.value ?? null;
       });
       return entry;
-    });
-    // Config for multi-item series (each line/bar group member is a division)
-    data.forEach((division, index) => {
-      chartConfig[division.name] = {
-        label: division.name,
-        color: chartColors[index % chartColors.length],
-      };
     });
   }
 
@@ -94,37 +133,34 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
 
   const CustomTooltip = ({ active, payload, label }: RechartsTooltipProps<ValueType, NameType>) => {
     if (active && payload && payload.length) {
-      let tooltipConfig = chartConfig;
-      // For single year bar chart, the payload 'name' is the division name, which is the key in chartConfig.
-      // For other charts, payload 'name' is the division name, also key in chartConfig.
-      // The `label` is the x-axis value (year or division name).
-      // Payload items are series.
-      
-      // If single year bar chart, payload is simpler: [{ name: 'value', value: 123, ...rest of payload for that division }]
-      // The `label` is the division name.
-      // We need to map this back to a config that ChartTooltipContent understands.
-      if (isSingleYear && chartType === 'bar') {
-        // `label` is the division name.
-        // `payload[0].name` is 'value'.
-        // We need to provide a config where the key matches payload[0].name or payload[0].dataKey
-        const currentDivisionConfig = chartConfig[label as string]; // label is division name
-        if (currentDivisionConfig) {
-           tooltipConfig = {
-             'value': { // dataKey for the bar
-               label: label as string, // Division name
-               color: currentDivisionConfig.color,
-             }
-           }
-        }
-      }
+      let tooltipContentConfig = activeChartConfig; // Default to global active config
 
+      if (isSingleYear && chartType === 'bar' && payload[0]?.payload) {
+        const itemPayload = payload[0].payload; // { name, originalName, saneKey, value, fill }
+        const saneKeyForTooltip = itemPayload.saneKey;
+        const fullLabelForTooltip = itemPayload.originalName;
+        // item.color is the resolved color of the Cell from the chart payload
+        const colorForTooltip = payload[0].color || activeChartConfig[saneKeyForTooltip]?.color;
+
+
+        // Create a specific config for ChartTooltipContent for this item
+        // The key 'value' must match the dataKey of the <Bar> component
+        tooltipContentConfig = {
+          'value': {
+            label: fullLabelForTooltip, // Display full name in tooltip item list
+            color: colorForTooltip,
+          }
+        };
+      }
+      // For line charts or multi-year bar charts, payload items will have dataKey set to saneKey
+      // ChartTooltipContent will use activeChartConfig and correctly find config[saneKey]
 
       return (
         <ChartTooltipContent
-          className="w-[250px] rounded-md border bg-popover p-2 shadow-lg"
-          label={label} // Year (for line/multi-year-bar) or Division Name (for single-year-bar)
+          className="w-[280px] rounded-md border bg-popover p-2 shadow-lg"
+          label={isSingleYear && chartType === 'bar' ? payload[0]?.payload?.originalName : label} // X-axis tick value or full name for single bar
           payload={payload.map(p => ({...p, value: p.value != null ? (p.value as number).toLocaleString() : "N/A" }))}
-          config={tooltipConfig}
+          config={tooltipContentConfig}
           indicator={chartType === 'line' ? 'line' : 'dot'}
         />
       );
@@ -132,99 +168,93 @@ export default function GvaChartDisplay({ data, chartType, years }: GvaChartDisp
     return null;
   };
   
-  // Determine XAxis dataKey based on chart configuration
-  const xAxisDataKey = (isSingleYear && chartType === 'bar') ? "name" : "name"; // "name" is division for single-year-bar, year for others
+  const xAxisDataKey = "name"; // "name" is abbreviated division for single-year-bar, year for others
+
+  const legendPayload = data.map(division => ({
+    value: sanitizeNameForKey(division.name), // This is the key ChartLegendContent will use to lookup in activeChartConfig
+    type: 'square', // Or 'line', 'circle' etc. as appropriate
+    id: sanitizeNameForKey(division.name),
+    color: activeChartConfig[sanitizeNameForKey(division.name)]?.color
+  }));
 
   return (
-    <ChartContainer config={chartConfig} className="min-h-[400px] w-full">
+    <ChartContainer config={activeChartConfig} className="min-h-[400px] w-full">
       {chartType === 'line' ? (
-        // Line chart for single year will show points for each division at that year.
-        // Or trends if multiple years are passed (not the case with slider)
-        <LineChart accessibilityLayer data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 50 }}>
+        <LineChart accessibilityLayer data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 70 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
-            dataKey={xAxisDataKey} // Year
+            dataKey={xAxisDataKey} // Year (YYYY-YY)
             tickLine={false}
             axisLine={false}
             tickMargin={8}
             angle={-45}
             textAnchor="end"
-            height={60}
+            height={80} // Increased height for labels
             interval={0}
             tickFormatter={(value) => value.toString()}
           />
           <YAxis tickFormatter={yAxisFormatter} />
           <ChartTooltip content={<CustomTooltip />} />
-          <ChartLegend content={<ChartLegendContent wrapperStyle={{paddingTop: '20px'}} />} />
-          {/* If single year line chart, `data` contains selected divisions.
-              `chartData` is [{name: 'year', DivA: val, DivB: val}]
-              So, map through `data` (selected divisions) to create lines.
-          */}
-          {data.map(division => (
-            <Line
-              key={division.name}
-              dataKey={division.name} // This corresponds to keys in chartData objects
-              type="monotone"
-              stroke={`var(--color-${division.name})`}
-              strokeWidth={2}
-              dot={isSingleYear} // Show dots if single year, otherwise lines might be too busy with dots
-              activeDot={{ r: 6 }}
-            />
-          ))}
+          <ChartLegend content={<ChartLegendContent />} payload={legendPayload} wrapperStyle={{paddingTop: '20px'}} />
+          {data.map(division => {
+            const saneKey = sanitizeNameForKey(division.name);
+            return (
+              <Line
+                key={saneKey}
+                dataKey={saneKey}
+                type="monotone"
+                stroke={`var(--color-${saneKey})`}
+                strokeWidth={2}
+                dot={isSingleYear || years.length <= 5 } // Show dots if single year or few years
+                activeDot={{ r: 6 }}
+              />
+            );
+          })}
         </LineChart>
       ) : ( // Bar Chart
-        <BarChart accessibilityLayer data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 50 }}>
+        <BarChart accessibilityLayer data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 70 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
-            dataKey={xAxisDataKey} // Division name for single-year-bar, Year for multi-year-bar
+            dataKey={xAxisDataKey} // Abbreviated Division name for single-year-bar, Year for multi-year-bar
             tickLine={false}
             axisLine={false}
             tickMargin={8}
             angle={-45}
             textAnchor="end"
-            height={60}
+            height={80} // Increased height for labels
             interval={0}
             tickFormatter={(value) => value.toString()}
           />
           <YAxis tickFormatter={yAxisFormatter} />
           <ChartTooltip content={<CustomTooltip />} />
-          <ChartLegend content={<ChartLegendContent wrapperStyle={{paddingTop: '20px'}}/>} />
+          <ChartLegend content={<ChartLegendContent />} payload={legendPayload} wrapperStyle={{paddingTop: '20px'}} />
           {isSingleYear && chartType === 'bar' ? (
-            // Single bar for each division. `chartData` is [{name: Division, value: GVA}]
-            // `chartConfig` keys are division names. We need one <Bar> component.
-            // This assumes recharts can use the color from chartConfig based on the 'name' field if fill is not explicitly set by dataKey.
-            // Better to map through divisions and assign fill.
-            // No, for this structure, a single <Bar dataKey="value" /> is enough if fill is handled by config.
-            // Recharts <Bar> does not automatically pick color from config based on `name` of data item.
-            // It uses the `fill` prop or color from `chartConfig` if `dataKey` matches a config key.
-            // So, we need one bar with dataKey "value" and iterate for different fills if we want different colors per bar (division).
-            // This is not how it works. For distinct bars, each needs its own <Bar> or use grouped bars.
-            // The current structure {name: Division, value: GVA}, allows a single <Bar dataKey="value">.
-            // To color each bar differently, we'd need to customize the <Bar> component's `fill` or use cells.
-            // Let's use individual <Bar> components for each division for single year bar chart.
-            data.map(division => (
-               <Bar
-                key={division.name}
-                dataKey="value" // This will pick 'value' from chartData where name === division.name
-                name={division.name} // Important for tooltip and legend linkage
-                fill={`var(--color-${division.name})`}
-                radius={[4, 4, 0, 0]}
-              />
-            ))
+            // Single <Bar> with <Cell> components for each division
+            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+              {chartData.map((entry, index) => (
+                 // entry.saneKey is the sanitized key for the division
+                <Cell key={`cell-${index}`} fill={`var(--color-${entry.saneKey})`} name={entry.originalName} />
+              ))}
+            </Bar>
           ) : (
-            // Grouped bar chart (X-axis is year, each bar in group is a division)
-            data.map(division => (
-              <Bar
-                key={division.name}
-                dataKey={division.name} // This corresponds to keys in chartData objects
-                fill={`var(--color-${division.name})`}
-                radius={[4, 4, 0, 0]}
-              />
-            ))
+            // Grouped bar chart (X-axis is year, each bar in group is a division (identified by saneKey))
+            data.map(division => {
+              const saneKey = sanitizeNameForKey(division.name);
+              return (
+                <Bar
+                  key={saneKey}
+                  dataKey={saneKey}
+                  fill={`var(--color-${saneKey})`}
+                  radius={[4, 4, 0, 0]}
+                />
+              );
+            })
           )}
         </BarChart>
       )}
-      <ChartStyle id="gva-chart-style" config={chartConfig} />
+      {/* ChartStyle component uses activeChartConfig to generate CSS color variables */}
+      <ChartStyle id="gva-chart-style" config={activeChartConfig} />
     </ChartContainer>
   );
 }
+
