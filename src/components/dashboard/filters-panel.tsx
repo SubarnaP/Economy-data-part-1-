@@ -11,12 +11,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import type { ChartType } from '@/types';
 import { Button } from '../ui/button';
-import { gvaData } from '@/data/gva-data'; // Import to get R/P status, corrected from allGvaData
+import { gvaData } from '@/data/gva-data'; // Import to get R/P status
 
 interface FiltersPanelProps {
   selectedYear: string;
   setSelectedYear: Dispatch<SetStateAction<string>>;
-  availableYears: string[]; // Renamed from allYears, represents all available Gregorian years
+  availableYears: string[];
   selectedDivisions: string[];
   setSelectedDivisions: Dispatch<SetStateAction<string[]>>;
   chartType: ChartType;
@@ -57,8 +57,6 @@ export default function FiltersPanel({
 
   const getYearLabel = (yearString: string) => {
     if (!yearString) return "";
-    // Find an example year entry to get its R/P status
-    // Assuming gvaData is available and has at least one division with data
     const yearMetaData = gvaData[0]?.data.find(d => d.gregorianYear === yearString);
     let label = yearString.replace("/", "-");
     if (yearMetaData?.isRevised) label += " (R)";
@@ -130,7 +128,7 @@ export default function FiltersPanel({
             <RadioGroup value={chartType} onValueChange={(value: ChartType) => setChartType(value)}>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="line" id="line-chart" />
-                <Label htmlFor="line-chart" className="text-xs font-normal">Line Chart</Label>
+                <Label htmlFor="line-chart" className="text-xs font-normal">Interactive Time Series Chart</Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="bar" id="bar-chart" />

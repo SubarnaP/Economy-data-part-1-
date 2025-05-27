@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AlertCircle, BarChart2, Download, LineChart as LineChartIcon, Loader2, Sparkles, TableIcon, Play, Pause } from 'lucide-react'; // Renamed LineChart import
+import { AlertCircle, BarChart2, Download, LineChart as LineChartIcon, Loader2, Sparkles, TableIcon, Play, Pause } from 'lucide-react';
 
 import type { ChartType, GvaIndustrialDivision as GvaDivisionType } from '@/types';
 import { gvaData, allGregorianYears, allIndustrialDivisions, getNumericYear } from '@/data/gva-data';
@@ -25,7 +25,7 @@ import GvaTableDisplay from './gva-table-display';
 import GvaChartDisplay from './gva-chart-display';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-const initialDivisions = allIndustrialDivisions.slice(0, 5); // Default to first 5 divisions
+const initialDivisions = allIndustrialDivisions.slice(0, 5);
 
 export default function MainDashboard() {
   const [selectedYear, setSelectedYear] = useState<string>(allGregorianYears[allGregorianYears.length - 1]);
@@ -38,7 +38,6 @@ export default function MainDashboard() {
 
   const { toast } = useToast();
 
-  // Animation for year slider
   useEffect(() => {
     let intervalId: NodeJS.Timeout | undefined;
     if (isPlaying) {
@@ -48,14 +47,13 @@ export default function MainDashboard() {
           const nextIndex = (currentIndex + 1) % allGregorianYears.length;
           return allGregorianYears[nextIndex];
         });
-      }, 1500); // Change year every 1.5 seconds
+      }, 1500);
     } else {
       clearInterval(intervalId);
     }
     return () => clearInterval(intervalId);
   }, [isPlaying]);
 
-  // Data filtered by selectedYear and selectedDivisions (for Table, AI, CSV)
   const singleYearFilteredData = useMemo((): GvaDivisionType[] => {
     if (!selectedDivisions.length || !selectedYear) {
       return [];
@@ -69,22 +67,18 @@ export default function MainDashboard() {
       .filter(division => division.data.length > 0);
   }, [selectedYear, selectedDivisions]);
 
-  // Data for the chart display (multi-year for line, single-year for bar)
   const chartDisplayData = useMemo((): GvaDivisionType[] => {
     if (!selectedDivisions.length) {
       return [];
     }
     if (chartType === 'line') {
-      // For line chart, include all years for selected divisions
       return gvaData
         .filter(division => selectedDivisions.includes(division.name))
         .map(division => ({
           ...division,
-          // Ensure data array contains all years for this division
           data: division.data.map(d => ({...d})),
         }));
     } else {
-      // For bar chart, use the singleYearFilteredData logic
       if (!selectedYear) return [];
       return gvaData
         .filter(division => selectedDivisions.includes(division.name))
@@ -97,7 +91,7 @@ export default function MainDashboard() {
   }, [selectedDivisions, chartType, selectedYear]);
   
   const yearsForChart = useMemo(() => {
-    return chartType === 'line' ? allGregorianYears : [selectedYear];
+    return chartType === 'line' ? allGregorianYears : (selectedYear ? [selectedYear] : []);
   }, [chartType, selectedYear]);
 
 
@@ -116,7 +110,7 @@ export default function MainDashboard() {
       const aiInput: SummarizeInsightsInput = {
         years: [getNumericYear(selectedYear)],
         industrialDivisions: selectedDivisions,
-        data: JSON.stringify(singleYearFilteredData.map(div => ({ // Use singleYearFilteredData
+        data: JSON.stringify(singleYearFilteredData.map(div => ({
           name: div.name,
           nsic: div.nsic,
           values: div.data.map(d => ({ year: getNumericYear(d.gregorianYear), value: d.value }))
@@ -137,7 +131,7 @@ export default function MainDashboard() {
   }, [singleYearFilteredData, selectedYear, selectedDivisions, toast]);
 
   const handleExportCsv = useCallback(() => {
-    if (!singleYearFilteredData.length || !selectedYear) { // Use singleYearFilteredData
+    if (!singleYearFilteredData.length || !selectedYear) {
       toast({ title: "No data to export", description: "Please select data to export.", variant: "destructive" });
       return;
     }
@@ -147,8 +141,8 @@ export default function MainDashboard() {
     const headers = ["Industrial Division", `GVA (${yearLabel})`];
     csvContent += headers.join(",") + "\r\n";
 
-    singleYearFilteredData.forEach(division => { // Use singleYearFilteredData
-      const yearDataEntry = division.data[0]; // Data is already filtered for the single selected year
+    singleYearFilteredData.forEach(division => {
+      const yearDataEntry = division.data[0];
       const value = yearDataEntry?.value?.toString() || "";
       const row = [division.name, value];
       csvContent += row.join(",") + "\r\n";
@@ -212,7 +206,7 @@ export default function MainDashboard() {
           <div className="flex items-center gap-2">
             <Button variant={viewMode === 'chart' ? 'secondary' : 'outline'} size="sm" onClick={() => setViewMode('chart')}>
               {chartType === 'line' ? <LineChartIcon className="h-4 w-4" /> : <BarChart2 className="h-4 w-4" />}
-              <span className="ml-2">Chart</span>
+              <span className="ml-2">{chartType === 'line' ? 'Time Series' : 'Bar Chart'}</span>
             </Button>
             <Button variant={viewMode === 'table' ? 'secondary' : 'outline'} size="sm" onClick={() => setViewMode('table')}>
               <TableIcon className="h-4 w-4" />
@@ -236,7 +230,7 @@ export default function MainDashboard() {
                   <AlertCircle className="h-4 w-4 text-accent" />
                   <AlertTitle className="text-accent">No Data for Current Filters</AlertTitle>
                   <AlertDescription>
-                    There is no data available for the current combination of filters. For bar charts, this might be due to no data for the selected year ({selectedYear.replace("/","-")}).
+                    There is no data available for the current combination of filters. For bar charts, this might be due to no data for the selected year ({selectedYear ? selectedYear.replace("/","-") : 'N/A'}).
                   </AlertDescription>
                 </Alert>
               ) : chartDisplayData.length === 0 ? (
@@ -248,9 +242,9 @@ export default function MainDashboard() {
                   </AlertDescription>
                 </Alert>
               ) : viewMode === 'chart' ? (
-                <GvaChartDisplay data={chartDisplayData} chartType={chartType} years={yearsForChart} />
+                <GvaChartDisplay data={chartDisplayData} chartType={chartType} years={yearsForChart} highlightYear={selectedYear} />
               ) : (
-                <GvaTableDisplay data={singleYearFilteredData} years={[selectedYear]} divisions={selectedDivisions} />
+                <GvaTableDisplay data={singleYearFilteredData} years={selectedYear ? [selectedYear] : []} divisions={selectedDivisions} />
               )}
             </CardContent>
           </Card>
@@ -258,7 +252,7 @@ export default function MainDashboard() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>AI-Driven Insights</CardTitle>
-              <Button onClick={handleGenerateInsights} disabled={isLoadingAiSummary}>
+              <Button onClick={handleGenerateInsights} disabled={isLoadingAiSummary || !selectedYear}>
                 {isLoadingAiSummary ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
@@ -269,7 +263,7 @@ export default function MainDashboard() {
             </CardHeader>
             <CardContent>
               {isLoadingAiSummary && <p className="text-muted-foreground">Generating insights, please wait...</p>}
-              {aiSummary && (
+              {aiSummary && selectedYear && (
                 <Alert variant="default" className="bg-secondary">
                   <Sparkles className="h-4 w-4 text-primary" />
                   <AlertTitle className="text-primary">Summary for {selectedYear.replace("/","-")}</AlertTitle>
@@ -283,6 +277,9 @@ export default function MainDashboard() {
               {!isLoadingAiSummary && !aiSummary && (
                 <p className="text-muted-foreground">Click the button above to generate AI-powered insights from the selected data (based on the year chosen in the slider).</p>
               )}
+               {!selectedYear && (
+                 <p className="text-muted-foreground">Please select a year to generate insights.</p>
+               )}
             </CardContent>
           </Card>
         </main>
@@ -290,5 +287,3 @@ export default function MainDashboard() {
     </div>
   );
 }
-
-    
