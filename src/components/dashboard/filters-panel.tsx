@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -7,49 +8,37 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Slider } from "@/components/ui/slider";
 import type { ChartType } from '@/types';
 import { Button } from '../ui/button';
+import { gvaData } from '@/data/gva-data'; // Import to get R/P status, corrected from allGvaData
 
 interface FiltersPanelProps {
-  selectedYears: string[];
-  setSelectedYears: Dispatch<SetStateAction<string[]>>;
+  selectedYear: string;
+  setSelectedYear: Dispatch<SetStateAction<string>>;
+  availableYears: string[]; // Renamed from allYears, represents all available Gregorian years
   selectedDivisions: string[];
   setSelectedDivisions: Dispatch<SetStateAction<string[]>>;
   chartType: ChartType;
   setChartType: Dispatch<SetStateAction<ChartType>>;
-  allYears: string[];
   allDivisions: string[];
 }
 
 export default function FiltersPanel({
-  selectedYears,
-  setSelectedYears,
+  selectedYear,
+  setSelectedYear,
+  availableYears,
   selectedDivisions,
   setSelectedDivisions,
   chartType,
   setChartType,
-  allYears,
   allDivisions,
 }: FiltersPanelProps) {
-
-  const handleYearChange = (year: string) => {
-    setSelectedYears(prev =>
-      prev.includes(year) ? prev.filter(y => y !== year) : [...prev, year]
-    );
-  };
 
   const handleDivisionChange = (division: string) => {
     setSelectedDivisions(prev =>
       prev.includes(division) ? prev.filter(d => d !== division) : [...prev, division]
     );
-  };
-
-  const toggleAllYears = () => {
-    if (selectedYears.length === allYears.length) {
-      setSelectedYears([]);
-    } else {
-      setSelectedYears(allYears);
-    }
   };
 
   const toggleAllDivisions = () => {
@@ -60,40 +49,59 @@ export default function FiltersPanel({
     }
   };
 
+  const currentYearIndex = availableYears.indexOf(selectedYear);
+
+  const handleSliderChange = (value: number[]) => {
+    setSelectedYear(availableYears[value[0]]);
+  };
+
+  const getYearLabel = (yearString: string) => {
+    if (!yearString) return "";
+    // Find an example year entry to get its R/P status
+    // Assuming gvaData is available and has at least one division with data
+    const yearMetaData = gvaData[0]?.data.find(d => d.gregorianYear === yearString);
+    let label = yearString.replace("/", "-");
+    if (yearMetaData?.isRevised) label += " (R)";
+    if (yearMetaData?.isPreliminary) label += " (P)";
+    return label;
+  };
+
   return (
     <div className="p-4 space-y-6 group-data-[collapsible=icon]:p-2">
-      <Accordion type="multiple" defaultValue={["years", "divisions", "chartType"]} className="w-full">
-        <AccordionItem value="years">
-          <AccordionTrigger className="text-sm font-medium group-data-[collapsible=icon]:text-xs group-data-[collapsible=icon]:py-2">Years</AccordionTrigger>
+      <Accordion type="multiple" defaultValue={["year-selection", "divisions", "chartType"]} className="w-full">
+        <AccordionItem value="year-selection">
+          <AccordionTrigger className="text-sm font-medium group-data-[collapsible=icon]:text-xs group-data-[collapsible=icon]:py-2">Select Year</AccordionTrigger>
           <AccordionContent className="group-data-[collapsible=icon]:hidden">
-            <Button variant="link" size="sm" onClick={toggleAllYears} className="px-0 mb-2 h-auto py-1">
-              {selectedYears.length === allYears.length ? "Deselect All" : "Select All"}
-            </Button>
-            <ScrollArea className="h-48">
-              <div className="space-y-2">
-                {allYears.map(year => (
-                  <div key={year} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`year-${year}`}
-                      checked={selectedYears.includes(year)}
-                      onCheckedChange={() => handleYearChange(year)}
-                    />
-                    <Label htmlFor={`year-${year}`} className="text-xs font-normal">
-                      {year}
-                      {year.includes("R") && " (Revised)"}
-                      {year.includes("P") && " (Preliminary)"}
-                    </Label>
-                  </div>
-                ))}
+            <div className="p-2 space-y-4">
+              <div className="text-center font-medium text-sm">
+                {getYearLabel(selectedYear)}
               </div>
-            </ScrollArea>
+              {availableYears.length > 0 && currentYearIndex !== -1 ? (
+                <Slider
+                  value={[currentYearIndex]}
+                  onValueChange={handleSliderChange}
+                  max={availableYears.length - 1}
+                  step={1}
+                  className="w-full my-4"
+                  aria-label="Year Selector"
+                />
+              ) : (
+                 <p className="text-xs text-muted-foreground">No years available for selection.</p>
+              )}
+              {availableYears.length > 0 && (
+                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                  <span>{getYearLabel(availableYears[0])}</span>
+                  <span>{getYearLabel(availableYears[availableYears.length - 1])}</span>
+                </div>
+              )}
+            </div>
           </AccordionContent>
         </AccordionItem>
 
         <AccordionItem value="divisions">
           <AccordionTrigger className="text-sm font-medium group-data-[collapsible=icon]:text-xs group-data-[collapsible=icon]:py-2">Industrial Divisions</AccordionTrigger>
           <AccordionContent className="group-data-[collapsible=icon]:hidden">
-             <Button variant="link" size="sm" onClick={toggleAllDivisions} className="px-0 mb-2 h-auto py-1">
+             <Button variant="link" size="sm" onClick={toggleAllDivisions} className="px-0 mb-2 h-auto py-1 text-xs">
               {selectedDivisions.length === allDivisions.length ? "Deselect All" : "Select All"}
             </Button>
             <ScrollArea className="h-64">
@@ -104,6 +112,7 @@ export default function FiltersPanel({
                       id={`division-${division.replace(/\W/g, '')}`} // Sanitize ID
                       checked={selectedDivisions.includes(division)}
                       onCheckedChange={() => handleDivisionChange(division)}
+                      aria-label={`Select division ${division}`}
                     />
                     <Label htmlFor={`division-${division.replace(/\W/g, '')}`} className="text-xs font-normal">
                       {division}

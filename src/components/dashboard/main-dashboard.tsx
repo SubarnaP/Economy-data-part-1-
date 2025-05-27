@@ -1,20 +1,22 @@
+
 "use client";
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Sidebar,
   SidebarContent,
   SidebarHeader,
   SidebarInset,
   SidebarTrigger,
+  SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AlertCircle, BarChart2, Download, LineChart, Loader2, Sparkles, TableIcon } from 'lucide-react';
+import { AlertCircle, BarChart2, Download, LineChart, Loader2, Sparkles, TableIcon, Play, Pause } from 'lucide-react';
 
-import type { ChartType, GvaIndustrialDivision as GvaDivisionType, GvaYearValue } from '@/types';
-import { gvaData as allGvaData, allGregorianYears, allIndustrialDivisions, getNumericYear } from '@/data/gva-data';
+import type { ChartType, GvaIndustrialDivision as GvaDivisionType } from '@/types';
+import { gvaData, allGregorianYears, allIndustrialDivisions, getNumericYear } from '@/data/gva-data';
 import { summarizeInsights, type SummarizeInsightsInput } from '@/ai/flows/summarize-insights';
 import { useToast } from "@/hooks/use-toast";
 
@@ -23,36 +25,54 @@ import GvaTableDisplay from './gva-table-display';
 import GvaChartDisplay from './gva-chart-display';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
-const initialYears = allGregorianYears.slice(-5); // Default to last 5 years
 const initialDivisions = allIndustrialDivisions.slice(0, 5); // Default to first 5 divisions
 
 export default function MainDashboard() {
-  const [selectedYears, setSelectedYears] = useState<string[]>(initialYears);
+  const [selectedYear, setSelectedYear] = useState<string>(allGregorianYears[allGregorianYears.length - 1]);
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>(initialDivisions);
-  const [chartType, setChartType] = useState<ChartType>('line');
+  const [chartType, setChartType] = useState<ChartType>('bar');
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [isLoadingAiSummary, setIsLoadingAiSummary] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'chart' | 'table'>('chart');
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   const { toast } = useToast();
 
+  // Animation for year slider
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | undefined;
+    if (isPlaying) {
+      intervalId = setInterval(() => {
+        setSelectedYear(currentSelectedYear => {
+          const currentIndex = allGregorianYears.indexOf(currentSelectedYear);
+          const nextIndex = (currentIndex + 1) % allGregorianYears.length;
+          return allGregorianYears[nextIndex];
+        });
+      }, 1500); // Change year every 1.5 seconds
+    } else {
+      clearInterval(intervalId);
+    }
+    return () => clearInterval(intervalId);
+  }, [isPlaying]);
+
   const filteredData = useMemo((): GvaDivisionType[] => {
-    if (!selectedDivisions.length || !selectedYears.length) {
+    if (!selectedDivisions.length || !selectedYear) {
       return [];
     }
-    return allGvaData
+    return gvaData // Changed from allGvaData
       .filter(division => selectedDivisions.includes(division.name))
       .map(division => ({
         ...division,
-        data: division.data.filter(yearData => selectedYears.includes(yearData.gregorianYear)),
-      }));
-  }, [selectedYears, selectedDivisions]);
+        data: division.data.filter(yearData => yearData.gregorianYear === selectedYear),
+      }))
+      .filter(division => division.data.length > 0);
+  }, [selectedYear, selectedDivisions]);
 
   const handleGenerateInsights = useCallback(async () => {
-    if (!filteredData.length || !selectedYears.length || !selectedDivisions.length) {
+    if (!filteredData.length || !selectedYear || !selectedDivisions.length) {
       toast({
         title: "Cannot generate insights",
-        description: "Please select at least one year and one industrial division.",
+        description: "Please select a year and at least one industrial division.",
         variant: "destructive",
       });
       return;
@@ -61,7 +81,7 @@ export default function MainDashboard() {
     setAiSummary(null);
     try {
       const aiInput: SummarizeInsightsInput = {
-        years: selectedYears.map(getNumericYear),
+        years: [getNumericYear(selectedYear)],
         industrialDivisions: selectedDivisions,
         data: JSON.stringify(filteredData.map(div => ({
           name: div.name,
@@ -81,39 +101,39 @@ export default function MainDashboard() {
       });
     }
     setIsLoadingAiSummary(false);
-  }, [filteredData, selectedYears, selectedDivisions, toast]);
+  }, [filteredData, selectedYear, selectedDivisions, toast]);
 
   const handleExportCsv = useCallback(() => {
-    if (!filteredData.length) {
+    if (!filteredData.length || !selectedYear) {
       toast({ title: "No data to export", description: "Please select data to export.", variant: "destructive" });
       return;
     }
 
     let csvContent = "data:text/csv;charset=utf-8,";
-    // Headers: Year, Division1, Division2, ...
-    const headers = ["Year", ...selectedDivisions];
+    const yearLabel = selectedYear.replace("/", "-");
+    const headers = ["Industrial Division", `GVA (${yearLabel})`];
     csvContent += headers.join(",") + "\r\n";
 
-    // Data rows
-    selectedYears.forEach(year => {
-      const row = [year];
-      selectedDivisions.forEach(divisionName => {
-        const division = filteredData.find(d => d.name === divisionName);
-        const yearData = division?.data.find(d => d.gregorianYear === year);
-        row.push(yearData?.value?.toString() || "");
-      });
+    filteredData.forEach(division => {
+      const yearDataEntry = division.data[0];
+      const value = yearDataEntry?.value?.toString() || "";
+      const row = [division.name, value];
       csvContent += row.join(",") + "\r\n";
     });
 
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "gva_data.csv");
+    link.setAttribute("download", `gva_data_${yearLabel}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    toast({ title: "Export Successful", description: "Data exported as gva_data.csv" });
-  }, [filteredData, selectedYears, selectedDivisions, toast]);
+    toast({ title: "Export Successful", description: `Data for ${yearLabel} exported.` });
+  }, [filteredData, selectedYear, toast]);
+
+  const togglePlayPause = () => {
+    setIsPlaying(!isPlaying);
+  };
 
 
   return (
@@ -131,17 +151,23 @@ export default function MainDashboard() {
         <SidebarContent className="p-0">
           <ScrollArea className="h-full">
             <FiltersPanel
-              selectedYears={selectedYears}
-              setSelectedYears={setSelectedYears}
+              selectedYear={selectedYear}
+              setSelectedYear={setSelectedYear}
+              availableYears={allGregorianYears}
               selectedDivisions={selectedDivisions}
               setSelectedDivisions={setSelectedDivisions}
               chartType={chartType}
               setChartType={setChartType}
-              allYears={allGregorianYears}
               allDivisions={allIndustrialDivisions}
             />
           </ScrollArea>
         </SidebarContent>
+         <SidebarFooter className="p-4 border-t">
+            <Button onClick={togglePlayPause} variant="outline" size="sm" className="w-full group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0">
+              {isPlaying ? <Pause className="h-4 w-4 group-data-[collapsible=icon]:size-4" /> : <Play className="h-4 w-4 group-data-[collapsible=icon]:size-4" />}
+              <span className="ml-2 group-data-[collapsible=icon]:hidden">{isPlaying ? 'Pause' : 'Play Animation'}</span>
+            </Button>
+          </SidebarFooter>
       </Sidebar>
 
       <SidebarInset className="flex-1 flex flex-col">
@@ -172,18 +198,26 @@ export default function MainDashboard() {
               <CardTitle>Data Visualization</CardTitle>
             </CardHeader>
             <CardContent>
-              {filteredData.length === 0 ? (
+              {filteredData.length === 0 && selectedDivisions.length > 0 ? (
+                 <Alert variant="default" className="border-accent">
+                  <AlertCircle className="h-4 w-4 text-accent" />
+                  <AlertTitle className="text-accent">No Data for Selected Year</AlertTitle>
+                  <AlertDescription>
+                    There is no data available for the combination of the selected year ({selectedYear.replace("/","-")}) and divisions. Try different selections.
+                  </AlertDescription>
+                </Alert>
+              ) : filteredData.length === 0 ? (
                 <Alert variant="default" className="border-accent">
                   <AlertCircle className="h-4 w-4 text-accent" />
                   <AlertTitle className="text-accent">No Data Selected</AlertTitle>
                   <AlertDescription>
-                    Please select years and industrial divisions from the sidebar to view data.
+                    Please select industrial divisions from the sidebar to view data.
                   </AlertDescription>
                 </Alert>
               ) : viewMode === 'chart' ? (
-                <GvaChartDisplay data={filteredData} chartType={chartType} years={selectedYears} />
+                <GvaChartDisplay data={filteredData} chartType={chartType} years={[selectedYear]} />
               ) : (
-                <GvaTableDisplay data={filteredData} years={selectedYears} divisions={selectedDivisions} />
+                <GvaTableDisplay data={filteredData} years={[selectedYear]} divisions={selectedDivisions} />
               )}
             </CardContent>
           </Card>
@@ -205,7 +239,7 @@ export default function MainDashboard() {
               {aiSummary && (
                 <Alert variant="default" className="bg-secondary">
                   <Sparkles className="h-4 w-4 text-primary" />
-                  <AlertTitle className="text-primary">Summary</AlertTitle>
+                  <AlertTitle className="text-primary">Summary for {selectedYear.replace("/","-")}</AlertTitle>
                   <AlertDescription className="prose prose-sm max-w-none">
                     {aiSummary.split('\n').map((paragraph, index) => (
                         <p key={index}>{paragraph}</p>
